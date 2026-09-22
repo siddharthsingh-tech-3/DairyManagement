@@ -1,0 +1,209 @@
+import { useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Box,
+  Button,
+  Divider,
+  IconButton,
+  List,
+  ListItemButton,
+  ListItemText,
+  Popover,
+  Stack,
+  TextField,
+  Typography,
+  type SxProps,
+  type Theme,
+} from '@mui/material'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import { createPurchaseItemCategory, listPurchaseItemCategories } from '@/api/purchaseItemCategories'
+import { useToastStore } from '@/store/uiStore'
+import { extractErrorMessage } from '@/api/client'
+import { EditPurchaseItemCategoryDialog } from '@/features/transport/EditPurchaseItemCategoryDialog'
+
+interface PurchaseItemCategorySelectProps {
+  /** Selected category id, or null. */
+  value: string | null
+  onChange: (id: string | null, name: string | null) => void
+  label?: string
+  required?: boolean
+  error?: boolean
+  helperText?: string
+  size?: 'small' | 'medium'
+  fullWidth?: boolean
+  sx?: SxProps<Theme>
+}
+
+export function PurchaseItemCategorySelect({
+  value,
+  onChange,
+  label = 'Purchase Item Category',
+  required,
+  error,
+  helperText,
+  size = 'small',
+  fullWidth = true,
+  sx,
+}: PurchaseItemCategorySelectProps) {
+  const toast = useToastStore((s) => s.show)
+  const queryClient = useQueryClient()
+  const anchorRef = useRef<HTMLDivElement>(null)
+
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [addingNew, setAddingNew] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string } | null>(null)
+
+  const { data: categories = [] } = useQuery({ queryKey: ['purchase-item-categories'], queryFn: listPurchaseItemCategories })
+
+  const selected = categories.find((c) => c.id === value) ?? null
+
+  const closePopover = () => {
+    setOpen(false)
+    setQuery('')
+    setAddingNew(false)
+    setNewName('')
+  }
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createPurchaseItemCategory(name),
+    onSuccess: async (category) => {
+      await queryClient.invalidateQueries({ queryKey: ['purchase-item-categories'] })
+      onChange(category.id, category.name)
+      closePopover()
+    },
+    onError: (err) => toast(extractErrorMessage(err), 'error'),
+  })
+
+  const filtered = categories.filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()))
+
+  const commitCreate = () => {
+    const trimmed = newName.trim()
+    if (!trimmed || createMutation.isPending) return
+    createMutation.mutate(trimmed)
+  }
+
+  return (
+    <>
+      <TextField
+        ref={anchorRef}
+        size={size}
+        fullWidth={fullWidth}
+        label={label}
+        required={required}
+        error={error}
+        helperText={helperText}
+        value={selected?.name ?? ''}
+        onClick={() => setOpen(true)}
+        sx={{ cursor: 'pointer', '& .MuiInputBase-input': { cursor: 'pointer' }, ...sx }}
+        slotProps={{
+          input: {
+            readOnly: true,
+            endAdornment: <ArrowDropDownIcon fontSize="small" sx={{ color: 'text.secondary' }} />,
+          },
+        }}
+      />
+      <Popover
+        open={open}
+        anchorEl={anchorRef.current}
+        onClose={closePopover}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      >
+        <Box sx={{ width: Math.max(anchorRef.current?.offsetWidth ?? 0, 260) }}>
+          <Box sx={{ p: 1 }}>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              placeholder="Search Categories"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </Box>
+          <Divider />
+          <List dense sx={{ maxHeight: 260, overflowY: 'auto', py: 0 }}>
+            {filtered.map((cat) => (
+              <ListItemButton
+                key={cat.id}
+                selected={value === cat.id}
+                onClick={() => {
+                  onChange(cat.id, cat.name)
+                  closePopover()
+                }}
+              >
+                <ListItemText primary={`${cat.name} (${cat.bill_count})`} />
+                <IconButton
+                  size="small"
+                  edge="end"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setEditTarget({ id: cat.id, name: cat.name })
+                  }}
+                >
+                  <EditOutlinedIcon fontSize="small" />
+                </IconButton>
+              </ListItemButton>
+            ))}
+            {filtered.length === 0 && (
+              <Box sx={{ px: 2, py: 1.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No categories found
+                </Typography>
+              </Box>
+            )}
+          </List>
+          <Box sx={{ p: 1 }}>
+            {addingNew ? (
+              <Stack direction="row" spacing={0.5}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  autoFocus
+                  placeholder="Category name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commitCreate()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setAddingNew(false)
+                    }
+                  }}
+                />
+                <IconButton size="small" onClick={commitCreate} disabled={createMutation.isPending}>
+                  <CheckIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" onClick={() => setAddingNew(false)}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            ) : (
+              <Button fullWidth size="small" variant="outlined" onClick={() => setAddingNew(true)} sx={{ borderStyle: 'dashed' }}>
+                + Add/Manage Category
+              </Button>
+            )}
+          </Box>
+        </Box>
+      </Popover>
+      <EditPurchaseItemCategoryDialog
+        open={!!editTarget}
+        category={editTarget}
+        onClose={() => setEditTarget(null)}
+        onRenamed={(_oldName, newName) => {
+          if (editTarget && value === editTarget.id) onChange(editTarget.id, newName)
+        }}
+        onDeleted={() => {
+          if (editTarget && value === editTarget.id) onChange(null, null)
+        }}
+      />
+    </>
+  )
+}
