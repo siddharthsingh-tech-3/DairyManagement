@@ -1,0 +1,34 @@
+# Render Blueprint for the backend (free tier).
+# Database: use a free Neon Postgres and paste its URLs into the two
+# DATABASE_URL* env vars when Render prompts for them.
+services:
+  - type: web
+    name: dairy-backend
+    runtime: docker
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: "8000"
+      # Free instances have 512 MB RAM — keep gunicorn small.
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      # Requests arrive via Netlify's proxy, so all users share a few IPs.
+      - key: RATE_LIMIT_LOGIN
+        value: "60/minute"
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

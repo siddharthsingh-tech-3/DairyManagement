@@ -1,0 +1,31 @@
+# Netlify config for the frontend (free tier).
+# The backend runs separately (see render.yaml); Netlify proxies /api and
+# /uploads to it, so the browser stays same-origin and no CORS setup is needed.
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+
+# Replace dairy-backend.onrender.com with your Render service URL.
+[[redirects]]
+  from = "/api/*"
+  to = "https://dairy-backend.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/uploads/*"
+  to = "https://dairy-backend.onrender.com/uploads/:splat"
+  status = 200
+  force = true
+
+# SPA fallback so React Router deep links survive a refresh
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -15,6 +15,9 @@ COPY . .
 RUN chmod +x entrypoint.sh && chown -R app:app /app
 USER app
 
+# gunicorn reads WEB_CONCURRENCY as its worker count
+ENV WEB_CONCURRENCY=4
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
@@ -22,4 +25,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-"]
+     "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-"]
