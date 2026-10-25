@@ -1,6 +1,7 @@
 # Render Blueprint for the backend (free tier).
-# Database: use a free Neon Postgres and paste its URLs into the two
-# DATABASE_URL* env vars when Render prompts for them.
+# Database: set DATABASE_URL to Neon's direct (unpooled) URL and
+# DATABASE_URL_SYNC to its direct psycopg2-compatible URL. The backend's
+# tenant RLS context is session-scoped and cannot use the transaction pooler.
 services:
   - type: web
     name: dairy-backend

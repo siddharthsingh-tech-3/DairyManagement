@@ -19,3 +19,6 @@ infra/.terraform.lock.hcl
 ## OS / editor
 .DS_Store
 *.log
+.neon
+node_modules/
+.env.local

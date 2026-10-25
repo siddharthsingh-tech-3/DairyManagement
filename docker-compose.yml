@@ -27,7 +27,9 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    env_file: ./backend/.env
+    env_file:
+      - ./backend/.env
+      - ./.env.local
     ports: ["8000:8000"]
     depends_on:
       db:

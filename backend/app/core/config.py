@@ -1,13 +1,37 @@
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import AnyHttpUrl, Field, field_validator
+from pydantic import AnyHttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+
+def _with_postgres_driver(url: str, driver: str) -> str:
+    parsed = make_url(url)
+    if parsed.drivername not in {"postgres", "postgresql"} and not parsed.drivername.startswith(
+        "postgresql+"
+    ):
+        return url
+
+    query = dict(parsed.query)
+    if driver == "asyncpg":
+        # asyncpg uses `ssl` rather than libpq's `sslmode` and does not accept
+        # the libpq-only `channel_binding` option included in Neon URLs.
+        query.pop("channel_binding", None)
+        if "sslmode" in query:
+            query["ssl"] = query.pop("sslmode")
+
+    return parsed.set(drivername=f"postgresql+{driver}", query=query).render_as_string(
+        hide_password=False
+    )
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env.local"), env_file_encoding="utf-8", extra="ignore"
+    )
 
     # --- App ---
     APP_NAME: str = "Kshirsagar Dairy Distribution Suite API"
@@ -17,7 +41,8 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://dev:devpass@db:5432/milkdairy"
-    DATABASE_URL_SYNC: str = "postgresql+psycopg2://dev:devpass@db:5432/milkdairy"
+    DATABASE_URL_UNPOOLED: str | None = None
+    DATABASE_URL_SYNC: str | None = None
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_ECHO: bool = False
@@ -60,6 +85,37 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def use_asyncpg_driver(cls, value: str) -> str:
+        return _with_postgres_driver(value, "asyncpg")
+
+    @field_validator("DATABASE_URL_SYNC", mode="before")
+    @classmethod
+    def use_psycopg_driver(cls, value: str | None) -> str | None:
+        return _with_postgres_driver(value, "psycopg2") if value else value
+
+    @model_validator(mode="after")
+    def configure_neon_database_urls(self) -> "Settings":
+        # The tenant RLS context is session-scoped, so the runtime must use
+        # Neon's direct endpoint rather than a transaction-pooler endpoint.
+        # Prefer the explicit unpooled URL supplied by `neon env pull`.
+        if self.DATABASE_URL_UNPOOLED:
+            self.DATABASE_URL = _with_postgres_driver(self.DATABASE_URL_UNPOOLED, "asyncpg")
+            # `DATABASE_URL_SYNC` may be left over in backend/.env from local
+            # Compose; always derive Neon migrations from its direct URL.
+            self.DATABASE_URL_SYNC = _with_postgres_driver(self.DATABASE_URL_UNPOOLED, "psycopg2")
+        elif not self.DATABASE_URL_SYNC:
+            self.DATABASE_URL_SYNC = _with_postgres_driver(self.DATABASE_URL, "psycopg2")
+
+        host = urlsplit(self.DATABASE_URL).hostname
+        if host and "-pooler" in host:
+            raise ValueError(
+                "DATABASE_URL must use Neon's direct (unpooled) endpoint because tenant RLS "
+                "context is session-scoped; set DATABASE_URL_UNPOOLED or use the direct URL."
+            )
+        return self
 
 
 @lru_cache
